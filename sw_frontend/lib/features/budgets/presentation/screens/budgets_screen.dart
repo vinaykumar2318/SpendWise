@@ -14,7 +14,9 @@ class BudgetsScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            onPressed: () {},
+            onPressed: () {
+              _showAddBudgetMessage(context);
+            },
             tooltip: 'Add budget',
             icon: const Icon(Icons.add_rounded),
           ),
@@ -23,27 +25,25 @@ class BudgetsScreen extends StatelessWidget {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          // API refresh will be implemented later.
+          await Future<void>.delayed(const Duration(milliseconds: 500));
         },
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(20),
           children: [
             _buildMonthHeader(context),
-
             const SizedBox(height: 20),
-
             _buildOverallBudgetCard(context),
-
             const SizedBox(height: 24),
-
-            Text(
+            const Text(
               'Category budgets',
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF172033),
+              ),
             ),
-
             const SizedBox(height: 12),
-
             _buildBudgetCard(
               context,
               category: 'Food & Dining',
@@ -51,9 +51,7 @@ class BudgetsScreen extends StatelessWidget {
               spent: 12450,
               limit: 15000,
             ),
-
             const SizedBox(height: 12),
-
             _buildBudgetCard(
               context,
               category: 'Shopping',
@@ -61,9 +59,7 @@ class BudgetsScreen extends StatelessWidget {
               spent: 8720,
               limit: 12000,
             ),
-
             const SizedBox(height: 12),
-
             _buildBudgetCard(
               context,
               category: 'Transport',
@@ -71,9 +67,7 @@ class BudgetsScreen extends StatelessWidget {
               spent: 6340,
               limit: 6000,
             ),
-
             const SizedBox(height: 12),
-
             _buildBudgetCard(
               context,
               category: 'Entertainment',
@@ -81,9 +75,7 @@ class BudgetsScreen extends StatelessWidget {
               spent: 3200,
               limit: 5000,
             ),
-
             const SizedBox(height: 12),
-
             _buildBudgetCard(
               context,
               category: 'Groceries',
@@ -91,6 +83,8 @@ class BudgetsScreen extends StatelessWidget {
               spent: 4100,
               limit: 7000,
             ),
+            const SizedBox(height: 24),
+            _buildAlertCard(context),
           ],
         ),
       ),
@@ -98,34 +92,41 @@ class BudgetsScreen extends StatelessWidget {
   }
 
   Widget _buildMonthHeader(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          onPressed: () {},
-          tooltip: 'Previous month',
-          icon: const Icon(Icons.chevron_left_rounded),
-        ),
-        Expanded(
-          child: Center(
-            child: Text(
-              'September 2026',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () {},
+            tooltip: 'Previous month',
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'September 2026',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
-        ),
-        IconButton(
-          onPressed: () {},
-          tooltip: 'Next month',
-          icon: const Icon(Icons.chevron_right_rounded),
-        ),
-      ],
+          IconButton(
+            onPressed: () {},
+            tooltip: 'Next month',
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildOverallBudgetCard(BuildContext context) {
-    const spent = 34810;
-    const limit = 45000;
+    const spent = 34810.0;
+    const limit = 45000.0;
     const progress = spent / limit;
 
     return Container(
@@ -219,10 +220,7 @@ class BudgetsScreen extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: () {
-        // Budget detail navigation will be added later.
-        context.push(
-          '/budgets/${Uri.encodeComponent(category)}',
-        );
+        context.push('/budgets/${Uri.encodeComponent(category)}');
       },
       child: Container(
         padding: const EdgeInsets.all(18),
@@ -236,75 +234,46 @@ class BudgetsScreen extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 46,
-                  height: 46,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: const Color(0xFFE3F2FD),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(13),
                   ),
                   child: Icon(icon, color: const Color(0xFF1565C0)),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          color: statusColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    category,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF667085),
+                Text(
+                  '₹${_formatAmount(spent)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ],
             ),
-
-            const SizedBox(height: 18),
-
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: progress > 1 ? 1 : progress,
+                minHeight: 8,
+                backgroundColor: const Color(0xFFEAF0F6),
+                valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+              ),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: progress.clamp(0.0, 1.0),
-                      minHeight: 8,
-                      backgroundColor: const Color(0xFFE4E7EC),
-                      valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
                 Text(
-                  '${percentage.round()}%',
+                  statusText,
                   style: TextStyle(
                     color: statusColor,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                Text(
-                  '₹${_formatAmount(spent)} spent',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 Text(
@@ -314,6 +283,50 @@ class BudgetsScreen extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B)),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Budget alert',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Your Transport spending has exceeded its monthly budget.',
+                  style: TextStyle(color: Color(0xFF475467), height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddBudgetMessage(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Budget creation will be connected to the data layer later.',
         ),
       ),
     );
