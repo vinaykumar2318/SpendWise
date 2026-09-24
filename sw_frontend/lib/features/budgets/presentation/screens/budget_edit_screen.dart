@@ -1,206 +1,420 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class BudgetEditScreen extends StatefulWidget {
-  final String category;
+import '../../../../app/theme.dart';
+import '../../../../core/utils/mock_data.dart';
+import '../../../transactions/domain/category.dart';
+import '../../domain/budget.dart';
+import '../../state/budget_providers.dart';
 
-  const BudgetEditScreen({super.key, required this.category});
+class BudgetEditScreen extends ConsumerStatefulWidget {
+  const BudgetEditScreen({super.key, required this.categoryId});
+
+  final String categoryId;
 
   @override
-  State<BudgetEditScreen> createState() => _BudgetEditScreenState();
+  ConsumerState<BudgetEditScreen> createState() => _BudgetEditScreenState();
 }
 
-class _BudgetEditScreenState extends State<BudgetEditScreen> {
-  late final TextEditingController budgetController;
+class _BudgetEditScreenState extends ConsumerState<BudgetEditScreen> {
+  final _amountController = TextEditingController();
 
-  final int currentSpent = 4820;
+  Budget? _budget;
+  bool _loading = true;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-
-    budgetController = TextEditingController(text: '6000');
+    _loadBudget();
   }
 
   @override
   void dispose() {
-    budgetController.dispose();
+    _amountController.dispose();
     super.dispose();
   }
 
-  void _saveBudget() {
-    final value = budgetController.text.trim();
+  Future<void> _loadBudget() async {
+    final month = DateTime(DateTime.now().year, DateTime.now().month, 1);
 
-    if (value.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a budget amount.')),
-      );
+    try {
+      final budgets = await ref.read(budgetsProvider(month).future);
+
+      Budget? matchingBudget;
+
+      for (final budget in budgets) {
+        if (budget.categoryId == widget.categoryId) {
+          matchingBudget = budget;
+          break;
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _budget = matchingBudget;
+        _loading = false;
+      });
+
+      if (matchingBudget != null) {
+        _amountController.text = (matchingBudget.limitPaise / 100)
+            .toStringAsFixed(0);
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _saveBudget() async {
+    final budget = _budget;
+
+    if (budget == null) {
       return;
     }
 
-    final budget = int.tryParse(value);
+    final amountText = _amountController.text.trim();
 
-    if (budget == null || budget <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid budget amount.')),
-      );
+    if (amountText.isEmpty) {
+      _showMessage('Please enter a budget amount.');
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${widget.category} budget updated to ₹$budget')),
-    );
+    final amount = double.tryParse(amountText);
 
-    Navigator.of(context).pop();
+    if (amount == null || amount <= 0) {
+      _showMessage('Please enter a valid amount greater than zero.');
+      return;
+    }
+
+    final limitPaise = (amount * 100).round();
+
+    if (limitPaise < budget.spentPaise) {
+      _showMessage('Budget cannot be lower than the amount already spent.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final repository = ref.read(budgetRepositoryProvider);
+
+      final updatedBudget = budget.copyWith(limitPaise: limitPaise);
+
+      final savedBudget = await repository.saveBudget(updatedBudget);
+
+      ref.invalidate(budgetsProvider(budget.month));
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _budget = savedBudget;
+      });
+
+      _showMessage('Budget updated successfully.');
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Unable to update budget. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final budget = int.tryParse(budgetController.text) ?? 0;
-
-    final double progress = budget > 0
-        ? (currentSpent / budget).clamp(0.0, 1.0)
-        : 0.0;
+    final category = _findCategory(widget.categoryId);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Edit Budget',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          // Category header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE3F2FD),
-              borderRadius: BorderRadius.circular(16),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _budget == null
+          ? _NotFoundState(categoryName: category?.name ?? 'Category')
+          : _EditContent(
+              budget: _budget!,
+              category: category,
+              controller: _amountController,
+              saving: _saving,
+              onSave: _saveBudget,
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_wallet_outlined,
+    );
+  }
+
+  Category? _findCategory(String categoryId) {
+    for (final category in MockData.categories) {
+      if (category.id == categoryId) {
+        return category;
+      }
+    }
+
+    return null;
+  }
+}
+
+class _EditContent extends StatelessWidget {
+  const _EditContent({
+    required this.budget,
+    required this.category,
+    required this.controller,
+    required this.saving,
+    required this.onSave,
+  });
+
+  final Budget budget;
+  final Category? category;
+  final TextEditingController controller;
+  final bool saving;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final categoryColor = category == null
+        ? AppTheme.primaryBlue
+        : Color(category!.colorValue);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      children: [
+        _CategoryHeader(category: category, color: categoryColor),
+
+        const SizedBox(height: 20),
+
+        _CurrentBudgetCard(budget: budget, color: categoryColor),
+
+        const SizedBox(height: 20),
+
+        const Text(
+          'Monthly budget limit',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        ),
+
+        const SizedBox(height: 10),
+
+        TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            prefixText: '₹ ',
+            labelText: 'Budget amount',
+            hintText: 'Enter monthly limit',
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        const Text(
+          'Enter the maximum amount you want to spend in this category this month.',
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
+
+        const SizedBox(height: 24),
+
+        ElevatedButton(
+          onPressed: saving ? null : onSave,
+          child: saving
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
                     color: Colors.white,
                   ),
+                )
+              : const Text('Save budget'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CategoryHeader extends StatelessWidget {
+  const _CategoryHeader({required this.category, required this.color});
+
+  final Category? category;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(
+            Icons.account_balance_wallet_rounded,
+            color: color,
+            size: 28,
+          ),
+        ),
+
+        const SizedBox(width: 14),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                category?.name ?? 'Category',
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.category,
-                        style: const TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Monthly budget',
-                        style: TextStyle(color: Color(0xFF667085)),
-                      ),
-                    ],
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Monthly spending budget',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CurrentBudgetCard extends StatelessWidget {
+  const _CurrentBudgetCard({required this.budget, required this.color});
+
+  final Budget budget;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = budget.progress;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Current usage',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+
+            const SizedBox(height: 10),
+
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${budget.spentPaise.abs() ~/ 100}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
                   ),
+                ),
+
+                const SizedBox(width: 6),
+
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    'spent',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+
+                const Spacer(),
+
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800),
                 ),
               ],
             ),
-          ),
 
-          const SizedBox(height: 28),
+            const SizedBox(height: 12),
 
-          const Text(
-            'Budget amount',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-
-          const SizedBox(height: 8),
-
-          TextField(
-            controller: budgetController,
-            keyboardType: TextInputType.number,
-            onChanged: (_) {
-              setState(() {});
-            },
-            decoration: const InputDecoration(
-              prefixText: '₹ ',
-              hintText: 'Enter monthly budget',
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Current spending
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Current spending',
-                    style: TextStyle(fontSize: 14, color: Color(0xFF667085)),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '₹$currentSpent',
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 8,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    budget > 0
-                        ? '${(progress * 100).toStringAsFixed(0)}% of budget used'
-                        : 'Enter a valid budget',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF667085),
-                    ),
-                  ),
-                ],
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 9,
+                backgroundColor: const Color(0xFFE9EEF5),
+                valueColor: AlwaysStoppedAnimation<Color>(color),
               ),
             ),
-          ),
 
-          const SizedBox(height: 32),
+            const SizedBox(height: 10),
 
-          ElevatedButton(
-            onPressed: _saveBudget,
-            child: const Text(
-              'Save Budget',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            Text(
+              budget.isOverBudget
+                  ? '₹${budget.remainingPaise.abs() ~/ 100} over budget'
+                  : '₹${budget.remainingPaise ~/ 100} remaining',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-          const SizedBox(height: 12),
+class _NotFoundState extends StatelessWidget {
+  const _NotFoundState({required this.categoryName});
 
-          OutlinedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text(
-              'Cancel',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+  final String categoryName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 60,
+              color: AppTheme.textSecondary,
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Text(
+              'No budget found for $categoryName',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
       ),
     );
   }
